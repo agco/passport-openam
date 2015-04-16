@@ -22,7 +22,8 @@ before(function() {
     var options = {
         openAMBaseURL: openAMURL,
         client_id: 'client_id',
-        client_secret: 'client_secret'
+        client_secret: 'client_secret',
+        redisDBIndex: 1
     };
 
     passport.use(redisOpenAM(db, options));
@@ -68,7 +69,11 @@ describe('Authorization', function() {
             var header = user + ':' + pass;
             var hashedHeader = MD5(header);
 
-            return db.set(hashedHeader, token);
+            db.multi();
+            db.select(1);
+            db.set(hashedHeader, token);
+
+            return db.exec();
         });
 
         it('checks for an existing base64 token to auth', function() {
@@ -134,10 +139,16 @@ describe('Authorization', function() {
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
 
-                return db.get(hashedHeader)
-                    .then(function(token) {
-                        expect(token).to.equal(mockToken);
-                    });
+                return db.select(1).then(getHeader).then(checkToken);
+
+                function getHeader() {
+                    return db.get(hashedHeader);
+                }
+
+                function checkToken(token) {
+                    expect(token).to.equal(mockToken);
+                }
+
             });
         });
 
