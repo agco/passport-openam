@@ -1,0 +1,28 @@
+{
+  "name": "passport-openam",
+  "version": "0.0.0",
+  "description": "Passport strategy to query OpenAM for token_info with Redis cache",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agco/passport-openam.git"
+  },
+  "keywords": [
+    "openam",
+    "oauth2",
+    "redis",
+    "passport"
+  ],
+  "author": {
+    "name": "Braden O'Guinn",
+    "email": "bgoguinn@gmail.com"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/agco/passport-openam/issues"
+  },
+  "homepage": "https://github.com/agco/passport-openam"
+}
