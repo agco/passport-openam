@@ -4,7 +4,7 @@
   "description": "Passport strategy to query OpenAM for token_info with Redis cache",
   "main": "index.js",
   "scripts": {
-    "test": "npm test"
+    "test": "mocha"
   },
   "repository": {
     "type": "git",
@@ -24,5 +24,12 @@
   "bugs": {
     "url": "https://github.com/agco/passport-openam/issues"
   },
-  "homepage": "https://github.com/agco/passport-openam"
+  "homepage": "https://github.com/agco/passport-openam",
+  "dependencies": {
+    "MD5": "^1.2.1",
+    "http-as-promised": "^1.0.0",
+    "passport-http": "^0.2.2",
+    "redis": "^0.12.1",
+    "then-redis": "^1.3.0"
+  }
 }
