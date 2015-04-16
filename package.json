@@ -1,5 +1,5 @@
 {
-  "name": "passport-openam",
+  "name": "passport-openam-agco",
   "version": "0.0.0",
   "description": "Passport strategy to query OpenAM for token_info with Redis cache",
   "main": "index.js",
@@ -18,7 +18,7 @@
   ],
   "author": {
     "name": "Braden O'Guinn",
-    "email": "bgoguinn@gmail.com"
+    "email": "nedarb906@gmail.com"
   },
   "license": "ISC",
   "bugs": {
