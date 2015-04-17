@@ -1,1 +1,1 @@
-module.exports = require('lib/redisOpenAM');
+module.exports = require('./lib/redisOpenAM');
