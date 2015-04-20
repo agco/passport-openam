@@ -14,17 +14,18 @@ var expect = require('chai').expect,
     openAMTokenPath = '/auth/oauth2/access_token',
     openAMInfoPath = '/auth/oauth2/tokeninfo',
     openAMURL = openAMBaseURL + openAMTokenPath,
-    reqObject;
+    requestUser;
 
 nock.enableNetConnect();
 
 before(function() {
     var options = {
         openAMBaseURL: openAMURL,
+        openAMInfoURL: openAMBaseURL + openAMInfoPath,
         client_id: 'client_id',
         client_secret: 'client_secret',
         redisDBIndex: 1,
-        scope: ["cn", "mail"]
+        scope: ["UUID", "username", "email"]
     };
 
     passport.use(redisOpenAM(db, options));
@@ -32,7 +33,7 @@ before(function() {
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
 
     function sendResponse(req, res, next) {
-        reqObject = req;
+        requestUser = req.user;
         res.send(200);
     }
 
@@ -105,9 +106,16 @@ describe('Authorization', function() {
                     "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
                     "access_token": mockToken
                 })
-                .post(openAMInfoPath)
+                .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
-
+                    "UUID": "h234ljb234jkn23",
+                    "scope": [
+                        "UUID",
+                        "username",
+                        "email"
+                    ],
+                    "username": "demo",
+                    "email": "foo@bar.com"
                 })
                 .post(openAMTokenPath)
                 .reply(400);
@@ -132,13 +140,12 @@ describe('Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(200);
 
-                //expect(reqObject.user.UUID).to.exist();
-                //expect(reqObject.user.username).to.exist();
-                //expect(reqObject.user.email).to.exist();
-
-
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
+
+                expect(requestUser.UUID).to.exist;
+                expect(requestUser.username).to.exist;
+                expect(requestUser.email).to.exist;
 
                 return db.select(1).then(getHeader).then(checkToken);
 
