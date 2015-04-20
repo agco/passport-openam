@@ -23,7 +23,8 @@ before(function() {
         openAMBaseURL: openAMURL,
         client_id: 'client_id',
         client_secret: 'client_secret',
-        redisDBIndex: 1
+        redisDBIndex: 1,
+        scope: ["cn", "mail"]
     };
 
     passport.use(redisOpenAM(db, options));
