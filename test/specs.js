@@ -19,16 +19,20 @@ var expect = require('chai').expect,
 nock.enableNetConnect();
 
 before(function() {
-    var options = {
-        openAMBaseURL: openAMURL,
-        openAMInfoURL: openAMBaseURL + openAMInfoPath,
-        client_id: 'client_id',
-        client_secret: 'client_secret',
-        redisDBIndex: 1,
-        scope: ["UUID", "username", "email"]
-    };
+    var basicOptions = {
+            openAMBaseURL: openAMURL,
+            openAMInfoURL: openAMBaseURL + openAMInfoPath,
+            client_id: 'client_id',
+            client_secret: 'client_secret',
+            redisDBIndex: 1,
+            scope: ["UUID", "username", "email"]
+        },
+        oauth2Options = {
 
-    passport.use(redisOpenAM(db, options));
+        };
+
+    passport.use(redisOpenAM.basic(db, basicOptions));
+    passport.use(redisOpenAM.oauth2(db, oauth2Options));
     app.use(passport.initialize());
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
 
@@ -58,7 +62,7 @@ describe('Basic Auth for routes', function() {
     });
 });
 
-describe('Authorization', function() {
+describe('Basic Authorization', function() {
 //
     describe('Redis caches authentication', function() {
         var user = 'foo',
@@ -183,6 +187,43 @@ describe('Authorization', function() {
             nock.restore();
             return db.flushdb();
         });
+    });
+
+});
+
+describe('OAUTH2', function() {
+
+    describe('Redis caches authentication', function() {
+        var user = 'foo',
+            pass = 'bar',
+            token = 'qux';
+
+        before(function() {
+            //create
+
+            var header = user + ':' + pass;
+            var hashedHeader = MD5(header);
+
+            db.multi();
+            db.select(1);
+            db.set(hashedHeader, token);
+
+            return db.exec();
+        });
+
+        it('checks for an existing base64 token to auth', function() {
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(200);
+                });
+        });
+
     });
 
 });
