@@ -236,23 +236,28 @@ describe('OAUTH2', function() {
     describe('Tokens not in redis are checked against the provided tokeninfo '+
              'endpoint', function() {
         var mockUser = {
-            "UUID": "h234ljb234jkn23",
-            "scope": [
-                "UUID",
-                "username",
-                "email"
-            ],
-            "expires_in": 7000,
-            "username": expectedUsername,
-            "email": "foo@bar.com"
-        },
+                "UUID": "h234ljb234jkn23",
+                "scope": [
+                    "UUID",
+                    "username",
+                    "email"
+                ],
+                "expires_in": 7000,
+                "username": expectedUsername,
+                "email": "foo@bar.com"
+            },
+            error = {
+                "error": "Not found",
+                "error_description": "Could not read token in CTS"
+            },
             badToken = 'foo';
 
         before(function() {
-            openAMMock.get(openAMInfoPath+'?access_token='+mockToken)
+            openAMMock
+                .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, mockUser)
                 .get(openAMInfoPath+'?access_token='+badToken)
-                .reply(401);
+                .reply(404, error);
         });
 
         after(function() {
