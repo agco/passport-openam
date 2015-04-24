@@ -14,23 +14,32 @@ var expect = require('chai').expect,
     openAMTokenPath = '/auth/oauth2/access_token',
     openAMInfoPath = '/auth/oauth2/tokeninfo',
     openAMURL = openAMBaseURL + openAMTokenPath,
+    mockToken = "f6dcf133-f00b-4943-a8d4-ee939fc1bf29",
+    expectedUsername = 'foo',
+    openAMMock = nock(openAMBaseURL),
     requestUser;
 
 nock.enableNetConnect();
 
 before(function() {
-    var options = {
-        openAMBaseURL: openAMURL,
-        openAMInfoURL: openAMBaseURL + openAMInfoPath,
-        client_id: 'client_id',
-        client_secret: 'client_secret',
-        redisDBIndex: 1,
-        scope: ["UUID", "username", "email"]
-    };
+    var basicOptions = {
+            openAMBaseURL: openAMURL,
+            openAMInfoURL: openAMBaseURL + openAMInfoPath,
+            client_id: 'client_id',
+            client_secret: 'client_secret',
+            redisDBIndex: 1,
+            scope: ["UUID", "username", "email"]
+        },
+        oauth2Options = {
+            openAMInfoURL: openAMBaseURL + openAMInfoPath,
+            redisDBIndex: 2
+        };
 
-    passport.use(redisOpenAM(db, options));
+    passport.use(redisOpenAM.basic(basicOptions));
+    passport.use(redisOpenAM.oauth2(oauth2Options));
     app.use(passport.initialize());
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
+    app.get('/bar', passport.authenticate('bearer', {session: false}), sendResponse);
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
@@ -43,10 +52,9 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
-
 });
 
-describe('Basic Auth for routes', function() {
+describe('Basic Authorization', function() {
 
     it('returns 401 for requests without auth headers', function() {
 
@@ -56,10 +64,7 @@ describe('Basic Auth for routes', function() {
             });
 
     });
-});
 
-describe('Authorization', function() {
-//
     describe('Redis caches authentication', function() {
         var user = 'foo',
             pass = 'bar',
@@ -92,13 +97,11 @@ describe('Authorization', function() {
         });
 
     });
-//
+
     describe('openAM check', function() {
 
-        var mockToken = "f6dcf133-f00b-4943-a8d4-ee939fc1bf29";
-
         before(function() {
-            var openAMMock = nock(openAMBaseURL)
+            openAMMock
                 .post(openAMTokenPath)
                 .reply(200, {
                     "expires_in": 599,
@@ -119,7 +122,10 @@ describe('Authorization', function() {
                 })
                 .post(openAMTokenPath)
                 .reply(400);
+        });
 
+        after(function() {
+            return db.flushdb();
         });
 
         it('validates a user if their credentials exist in openAM and returns '+
@@ -178,11 +184,127 @@ describe('Authorization', function() {
                 expect(res.statusCode).to.equal(401);
             });
         });
+    });
+});
 
-        after(function() {
-            nock.restore();
-            return db.flushdb();
-        });
+describe('OAUTH2', function() {
+
+    it('returns 401 for requests without auth headers', function() {
+
+        return $http.get(url + '/bar', {error: false})
+            .spread(function(res) {
+                expect(res.statusCode).to.equal(401);
+            });
+
     });
 
+    describe('Redis caches authentication', function() {
+        var token = 'qux',
+            tokenHeader = 'Bearer ' + token,
+            expectedName = 'Robot';
+
+        before(function() {
+            //create token with info
+
+            var hashedHeader = MD5(token),
+                userInfo = {
+                    name: expectedName
+                };
+
+            db.multi();
+            db.select(2);
+            db.set(hashedHeader, JSON.stringify(userInfo));
+
+            return db.exec();
+        });
+
+        it('checks for an existing oauth2 token to auth', function() {
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: tokenHeader
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(200);
+                    expect(requestUser.name).to.equal(expectedName);
+                });
+        });
+
+    });
+
+    describe('Tokens not in redis are checked against the provided tokeninfo '+
+             'endpoint', function() {
+        var mockUser = {
+                "UUID": "h234ljb234jkn23",
+                "scope": [
+                    "UUID",
+                    "username",
+                    "email"
+                ],
+                "expires_in": 7000,
+                "username": expectedUsername,
+                "email": "foo@bar.com"
+            },
+            error = {
+                "error": "Not found",
+                "error_description": "Could not read token in CTS"
+            },
+            badToken = 'foo';
+
+        before(function() {
+            openAMMock
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(200, mockUser)
+                .get(openAMInfoPath+'?access_token='+badToken)
+                .reply(404, error);
+        });
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it('Has the user info on the req body if it is found and stores it in '+
+            'redis', function() {
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + mockToken
+                }
+            })
+                .spread(function(res, body) {
+                    var hashedToken = MD5(mockToken);
+
+                    expect(res.statusCode).to.equal(200);
+                    expect(requestUser.username).to.equal(expectedUsername);
+
+                    db.multi();
+                    db.select(2);
+                    db.get(hashedToken);
+                    return db.exec().spread(function(selection, body) {
+                        return expect(JSON.parse(body)).to.deep.equal(mockUser);
+                    });
+                });
+        });
+
+        it('invalidates a user if oauth returns 400', function() {
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + 'foo'
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(401);
+                    var hashedToken = MD5(badToken);
+
+                    db.multi();
+                    db.select(2);
+                    db.get(hashedToken);
+                    return db.exec().spread(function(selection, body) {
+                        expect(body).to.equal(null);
+                    });
+                });
+        });
+    });
 });
