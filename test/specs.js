@@ -282,7 +282,7 @@ describe('OAUTH2', function() {
                 });
         });
 
-        it.only('invalidates a user if oauth returns 400', function() {
+        it('invalidates a user if oauth returns 400', function() {
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
