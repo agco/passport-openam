@@ -218,7 +218,7 @@ describe('OAUTH2', function() {
             return db.exec();
         });
 
-        it('checks for an existing base64 token to auth', function() {
+        it('checks for an existing oauth2 token to auth', function() {
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
@@ -242,13 +242,17 @@ describe('OAUTH2', function() {
                 "username",
                 "email"
             ],
+            "expires_in": 7000,
             "username": expectedUsername,
             "email": "foo@bar.com"
-        };
+        },
+            badToken = 'foo';
 
         before(function() {
             openAMMock.get(openAMInfoPath+'?access_token='+mockToken)
-                .reply(200, mockUser);
+                .reply(200, mockUser)
+                .get(openAMInfoPath+'?access_token='+badToken)
+                .reply(401);
         });
 
         after(function() {
@@ -274,6 +278,26 @@ describe('OAUTH2', function() {
                     db.get(hashedToken);
                     return db.exec().spread(function(selection, body) {
                         return expect(JSON.parse(body)).to.deep.equal(mockUser);
+                    });
+                });
+        });
+
+        it.only('invalidates a user if oauth returns 400', function() {
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + 'foo'
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(401);
+                    var hashedToken = MD5(badToken);
+
+                    db.multi();
+                    db.select(2);
+                    db.get(hashedToken);
+                    return db.exec().spread(function(selection, body) {
+                        expect(body).to.equal(null);
                     });
                 });
         });
