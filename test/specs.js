@@ -35,8 +35,8 @@ before(function() {
             redisDBIndex: 2
         };
 
-    passport.use(redisOpenAM.basic(db, basicOptions));
-    passport.use(redisOpenAM.oauth2(db, oauth2Options));
+    passport.use(redisOpenAM.basic(basicOptions));
+    passport.use(redisOpenAM.oauth2(oauth2Options));
     app.use(passport.initialize());
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
     app.get('/bar', passport.authenticate('bearer', {session: false}), sendResponse);
