@@ -1,6 +1,6 @@
 {
   "name": "passport-openam-agco",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Passport strategy to query OpenAM for token_info with Redis cache",
   "main": "index.js",
   "scripts": {
