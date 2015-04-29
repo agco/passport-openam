@@ -27,12 +27,12 @@ before(function() {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
             client_id: 'client_id',
             client_secret: 'client_secret',
-            redisDBIndex: 1,
+            redis: {database: 1},
             scope: ["UUID", "username", "email"]
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
-            redisDBIndex: 2
+            redis: {database: 2}
         };
 
     passport.use(redisOpenAM.basic(basicOptions));
