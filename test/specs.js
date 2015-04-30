@@ -13,6 +13,7 @@ var expect = require('chai').expect,
     openAMBaseURL = 'https://openam.example.com',
     openAMTokenPath = '/auth/oauth2/access_token',
     openAMInfoPath = '/auth/oauth2/tokeninfo',
+    openAMUserPath = '/auth/oauth2/userinfo',
     openAMURL = openAMBaseURL + openAMTokenPath,
     mockToken = "f6dcf133-f00b-4943-a8d4-ee939fc1bf29",
     expectedUsername = 'foo',
@@ -32,6 +33,7 @@ before(function() {
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
+            openAMUserURL: openAMBaseURL + openAMUserPath,
             redis: {database: 2}
         };
 
@@ -235,16 +237,26 @@ describe('OAUTH2', function() {
 
     describe('Tokens not in redis are checked against the provided tokeninfo '+
              'endpoint', function() {
-        var mockUser = {
-                "UUID": "h234ljb234jkn23",
+        var mockTokenInfo = {
+                "profile": "",
+                "mail": "agc2.dealer.1@agcocorp.com",
                 "scope": [
-                    "UUID",
-                    "username",
-                    "email"
+                    "mail",
+                    "cn",
+                    "profile"
                 ],
-                "expires_in": 7000,
-                "username": expectedUsername,
-                "email": "foo@bar.com"
+                "grant_type": "password",
+                "cn": "agc2 dealer 1",
+                "realm": "/dealers",
+                "token_type": "Bearer",
+                "expires_in": 7136,
+                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe"
+            },
+            mockUserInfo = {
+                "given_name": "agc2",
+                "family_name": "dealer.1",
+                "name": "agc2 dealer 1",
+                "sub": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
             },
             error = {
                 "error": "Not found",
@@ -255,13 +267,17 @@ describe('OAUTH2', function() {
         before(function() {
             openAMMock
                 .get(openAMInfoPath+'?access_token='+mockToken)
-                .reply(200, mockUser)
+                .reply(200, mockTokenInfo)
+                .post(openAMUserPath)
+                .reply(200, mockUserInfo)
                 .get(openAMInfoPath+'?access_token='+badToken)
-                .reply(404, error);
+                .reply(404, error)
+                .post(openAMUserPath)
+                .reply(200, mockUserInfo);
         });
 
-        after(function() {
-            return db.flushdb();
+        beforeEach(function() {
+            return db.flushall();
         });
 
         it('Has the user info on the req body if it is found and stores it in '+
@@ -276,13 +292,13 @@ describe('OAUTH2', function() {
                     var hashedToken = MD5(mockToken);
 
                     expect(res.statusCode).to.equal(200);
-                    expect(requestUser.username).to.equal(expectedUsername);
+                    expect(requestUser).to.deep.equal(mockUserInfo);
 
                     db.multi();
                     db.select(2);
                     db.get(hashedToken);
                     return db.exec().spread(function(selection, body) {
-                        return expect(JSON.parse(body)).to.deep.equal(mockUser);
+                        return expect(JSON.parse(body)).to.deep.equal(mockUserInfo);
                     });
                 });
         });
@@ -302,7 +318,7 @@ describe('OAUTH2', function() {
                     db.select(2);
                     db.get(hashedToken);
                     return db.exec().spread(function(selection, body) {
-                        expect(body).to.equal(null);
+                        return expect(body).to.equal(null);
                     });
                 });
         });
