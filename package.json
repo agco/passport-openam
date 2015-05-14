@@ -39,6 +39,7 @@
   "devDependencies": {
     "chai": "^2.3.0",
     "express": "^4.12.3",
+    "mocha": "^2.2.4",
     "nock": "^2.0.1"
   }
 }
