@@ -86,6 +86,8 @@ describe('Basic Authorization', function() {
         });
 
         it('checks for an existing base64 token to auth', function() {
+            // FIXME: This test generates an error trace. However the test still
+            // passes
             return $http.get(url + '/foo', {
                 error: false,
                 auth: {
