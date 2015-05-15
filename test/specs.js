@@ -45,7 +45,7 @@ before(function() {
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
-        res.send(200);
+        res.sendStatus(200);
     }
 
     var server = app.listen(port, function() {
@@ -288,19 +288,20 @@ describe('OAUTH2', function() {
                     Authorization: 'Bearer ' + mockToken
                 }
             })
-                .spread(function(res, body) {
-                    var hashedToken = MD5(mockToken);
+            .spread(function(res, body) {
+                var hashedToken = MD5(mockToken);
 
-                    expect(res.statusCode).to.equal(200);
-                    expect(requestUser).to.deep.equal(mockUserInfo);
+                expect(res.statusCode).to.equal(200);
+                expect(requestUser.token.mail).to.equal(mockTokenInfo.mail);
+                expect(requestUser.sub).to.equal(mockUserInfo.sub);
 
-                    db.multi();
-                    db.select(2);
-                    db.get(hashedToken);
-                    return db.exec().spread(function(selection, body) {
-                        return expect(JSON.parse(body)).to.deep.equal(mockUserInfo);
-                    });
+                db.multi();
+                db.select(2);
+                db.get(hashedToken);
+                return db.exec().spread(function(selection, body) {
+                    return expect(JSON.parse(body).name).to.equal(mockUserInfo.name);
                 });
+            });
         });
 
         it('invalidates a user if oauth returns 400', function() {
