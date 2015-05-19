@@ -1,6 +1,6 @@
 {
   "name": "passport-openam-agco",
-  "version": "0.0.3",
+  "version": "0.0.8",
   "description": "Passport strategy to query OpenAM for token_info with Redis cache",
   "main": "index.js",
   "scripts": {
@@ -29,6 +29,7 @@
     "MD5": "^1.2.1",
     "bluebird": "^2.9.24",
     "http-as-promised": "^1.0.0",
+    "lodash": "^3.7.0",
     "passport-http": "^0.2.2",
     "passport-http-bearer": "^1.0.1",
     "redis": "^0.12.1",
