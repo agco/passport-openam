@@ -10,7 +10,7 @@ var expect = require('chai').expect,
     redisOpenAM = require('../index.js'),
     port = '5050',
     url = 'http://0.0.0.0:'+port,
-    openAMBaseURL = 'https://openam.example.com',
+    openAMBaseURL = 'https://aaat.agcocorp.com',
     openAMTokenPath = '/auth/oauth2/access_token',
     openAMInfoPath = '/auth/oauth2/tokeninfo',
     openAMUserPath = '/auth/oauth2/userinfo',
@@ -252,13 +252,8 @@ describe('OAUTH2', function() {
                 "realm": "/dealers",
                 "token_type": "Bearer",
                 "expires_in": 7136,
-                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe"
-            },
-            mockUserInfo = {
-                "given_name": "agc2",
-                "family_name": "dealer.1",
-                "name": "agc2 dealer 1",
-                "sub": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
+                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe",
+                "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
             },
             error = {
                 "error": "Not found",
@@ -270,12 +265,8 @@ describe('OAUTH2', function() {
             openAMMock
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, mockTokenInfo)
-                .post(openAMUserPath)
-                .reply(200, mockUserInfo)
                 .get(openAMInfoPath+'?access_token='+badToken)
-                .reply(404, error)
-                .post(openAMUserPath)
-                .reply(200, mockUserInfo);
+                .reply(404, error);
         });
 
         beforeEach(function() {
@@ -294,14 +285,14 @@ describe('OAUTH2', function() {
                 var hashedToken = MD5(mockToken);
 
                 expect(res.statusCode).to.equal(200);
-                expect(requestUser.token.mail).to.equal(mockTokenInfo.mail);
-                expect(requestUser.sub).to.equal(mockUserInfo.sub);
+                //expect(requestUser.token.mail).to.equal(mockTokenInfo.mail);
+                expect(requestUser.sub).to.equal(mockTokenInfo.agcoUUID);
 
                 db.multi();
                 db.select(2);
                 db.get(hashedToken);
                 return db.exec().spread(function(selection, body) {
-                    return expect(JSON.parse(body).name).to.equal(mockUserInfo.name);
+                    return expect(JSON.parse(body).sub).to.equal(mockTokenInfo.agcoUUID);
                 });
             });
         });
