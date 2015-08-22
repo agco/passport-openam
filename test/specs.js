@@ -45,7 +45,7 @@ before(function() {
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
-        res.sendStatus(200);
+        res.sendStatus(200, JSON.stringify(req.user));
     }
 
     var server = app.listen(port, function() {
@@ -297,7 +297,7 @@ describe('OAUTH2', function() {
             });
         });
 
-        it('invalidates a user if oauth returns 400', function() {
+        it('invalidates a user if oauth returns 401', function() {
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
