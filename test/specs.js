@@ -43,7 +43,7 @@ before(function() {
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
-        res.send(200);
+        res.sendStatus(200);
     }
 
     var server = app.listen(port, function() {
