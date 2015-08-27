@@ -10,3 +10,9 @@ the token_info endpoint for user data
 #### Redis
 
 A redis instance is required to cache users authentication
+
+### A word about `node` versions.
+
+The test suite will fail some test if it's run with `node` v0.10.25. This is the
+default version from ubuntu's repositories. The test has been tested and passes
+with `ndoe` v0.10.38 and v0.12.2.
