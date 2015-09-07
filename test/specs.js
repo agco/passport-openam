@@ -42,6 +42,12 @@ before(function() {
     app.use(passport.initialize());
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
     app.get('/bar', passport.authenticate('bearer', {session: false}), sendResponse);
+    app.get('/foo_err', passport.authenticate('basic', {session: false}), function(req, res) {
+        res.status(500).send('dummy error');
+    });
+    app.get('/bar_err', passport.authenticate('bearer', {session: false}), function(req, res) {
+        res.status(500).send('dummy error');
+    });
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
@@ -67,6 +73,7 @@ describe('Basic Authorization', function() {
 
     });
 
+
     describe('Redis caches authentication', function() {
         var user = 'foo',
             pass = 'bar',
@@ -86,8 +93,6 @@ describe('Basic Authorization', function() {
         });
 
         it('checks for an existing base64 token to auth', function() {
-            // FIXME: This test generates an error trace. However the test still
-            // passes
             return $http.get(url + '/foo', {
                 error: false,
                 auth: {
@@ -98,6 +103,19 @@ describe('Basic Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(200);
             });
+        });
+
+        it('returns downstream errors as is', function() {
+            return $http.get(url + '/foo_err', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                }
+            })
+             .spread(function(res, body) {
+                expect(res.statusCode).to.equal(500);
+             });
         });
 
     });
@@ -266,7 +284,9 @@ describe('OAUTH2', function() {
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, mockTokenInfo)
                 .get(openAMInfoPath+'?access_token='+badToken)
-                .reply(404, error);
+                .reply(404, error)
+                .get(openAMInfoPath+'?access_token='+badToken)
+                .reply(200, mockTokenInfo);
         });
 
         beforeEach(function() {
@@ -314,6 +334,18 @@ describe('OAUTH2', function() {
                     return db.exec().spread(function(selection, body) {
                         return expect(body).to.equal(null);
                     });
+                });
+        });
+
+        it('returns downstream errors as is', function() {
+            return $http.get(url + '/bar_err', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + 'foo'
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(500);
                 });
         });
     });
