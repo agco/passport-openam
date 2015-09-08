@@ -189,7 +189,7 @@ describe('Basic Authorization', function() {
                     expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
 
-            });
+            }
         });
 
         it('validates with tokenInfo and cached results', function() {
