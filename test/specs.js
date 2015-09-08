@@ -3,7 +3,7 @@ var expect = require('chai').expect,
     MD5 = require('MD5'),
     nock = require('nock'),
     redis = require('then-redis'),
-    db = redis.createClient(),
+    db = redis.createClient({database: 1}),
     express = require('express'),
     passport = require('passport'),
     app = express(),
@@ -29,7 +29,7 @@ before(function() {
             client_id: 'client_id',
             client_secret: 'client_secret',
             redis: {database: 1},
-            scope: ["UUID", "username", "email"]
+            scope: ["sub", "username", "email"]
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
@@ -60,6 +60,7 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
+    return db.flushdb();
 });
 
 describe('Basic Authorization', function() {
@@ -77,7 +78,7 @@ describe('Basic Authorization', function() {
     describe('Redis caches authentication', function() {
         var user = 'foo',
             pass = 'bar',
-            token = 'qux';
+            token = {sub: '234234'};
 
         before(function() {
             //create
@@ -87,7 +88,7 @@ describe('Basic Authorization', function() {
 
             db.multi();
             db.select(1);
-            db.set(hashedHeader, token);
+            db.set(hashedHeader, JSON.stringify(token));
 
             return db.exec();
         });
@@ -133,9 +134,9 @@ describe('Basic Authorization', function() {
                 })
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
-                    "UUID": "h234ljb234jkn23",
+                    "agcoUUID": "h234ljb234jkn23",
                     "scope": [
-                        "UUID",
+                        "agcoUUID",
                         "username",
                         "email"
                     ],
@@ -165,13 +166,14 @@ describe('Basic Authorization', function() {
                     deviceId: true
                 }
             })
-            .spread(function(res, body) {
+            .spread(function checkResponse(res, body) {
                 expect(res.statusCode).to.equal(200);
 
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
 
-                expect(requestUser.UUID).to.exist;
+                expect(requestUser.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
                 expect(requestUser.username).to.exist;
                 expect(requestUser.email).to.exist;
 
@@ -182,10 +184,57 @@ describe('Basic Authorization', function() {
                 }
 
                 function checkToken(token) {
-                    expect(token).to.equal(mockToken);
+                    var parsedToken = JSON.parse(token);
+                    expect(parsedToken.agcoUUID).to.equal("h234ljb234jkn23");
+                    expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
 
             });
+        });
+
+        it('validates with tokenInfo and cached results', function() {
+            var user = 'missing',
+                pass = 'missing';
+
+            return getValidTokenInfo()
+                .then(getValidTokenInfo)
+                .spread(checkResponse);
+
+            function getValidTokenInfo() {
+                return $http.get(url + '/foo', {
+                    error: false,
+                    auth: {
+                        user: user,
+                        pass: pass
+                    },
+                    json: {
+                        deviceId: true
+                    }
+                });
+            }
+
+            function checkResponse(res) {
+                expect(res.statusCode).to.equal(200);
+
+                var header = user + ':' + pass,
+                    hashedHeader = MD5(header);
+
+                expect(requestUser.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
+                expect(requestUser.username).to.exist;
+                expect(requestUser.email).to.exist;
+
+                return db.select(1).then(getHeader).then(checkToken);
+
+                function getHeader() {
+                    return db.get(hashedHeader);
+                }
+
+                function checkToken(token) {
+                    expect(JSON.parse(token).sub).to.equal("h234ljb234jkn23");
+                }
+
+            }
         });
 
         it('invalidates a user if openAM returns a 400 code', function() {
