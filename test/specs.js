@@ -3,7 +3,7 @@ var expect = require('chai').expect,
     MD5 = require('MD5'),
     nock = require('nock'),
     redis = require('then-redis'),
-    db = redis.createClient(),
+    db = redis.createClient({database: 1}),
     express = require('express'),
     passport = require('passport'),
     app = express(),
@@ -29,7 +29,7 @@ before(function() {
             client_id: 'client_id',
             client_secret: 'client_secret',
             redis: {database: 1},
-            scope: ["UUID", "username", "email"]
+            scope: ["sub", "username", "email"]
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
@@ -60,6 +60,7 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
+    return db.flushdb();
 });
 
 describe('Basic Authorization', function() {
@@ -77,7 +78,7 @@ describe('Basic Authorization', function() {
     describe('Redis caches authentication', function() {
         var user = 'foo',
             pass = 'bar',
-            token = 'qux';
+            token = {sub: '234234'};
 
         before(function() {
             //create
@@ -87,7 +88,7 @@ describe('Basic Authorization', function() {
 
             db.multi();
             db.select(1);
-            db.set(hashedHeader, token);
+            db.set(hashedHeader, JSON.stringify(token));
 
             return db.exec();
         });
@@ -133,9 +134,9 @@ describe('Basic Authorization', function() {
                 })
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
-                    "UUID": "h234ljb234jkn23",
+                    "agcoUUID": "h234ljb234jkn23",
                     "scope": [
-                        "UUID",
+                        "agcoUUID",
                         "username",
                         "email"
                     ],
@@ -165,15 +166,16 @@ describe('Basic Authorization', function() {
                     deviceId: true
                 }
             })
-            .spread(function(res, body) {
+            .spread(function checkResponse(res, body) {
                 expect(res.statusCode).to.equal(200);
 
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
 
-                expect(requestUser.UUID).to.exist;
-                expect(requestUser.username).to.exist;
-                expect(requestUser.email).to.exist;
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.username).to.exist;
+                expect(requestUser.token.email).to.exist;
 
                 return db.select(1).then(getHeader).then(checkToken);
 
@@ -182,13 +184,60 @@ describe('Basic Authorization', function() {
                 }
 
                 function checkToken(token) {
-                    expect(token).to.equal(mockToken);
+                    var parsedToken = JSON.parse(token);
+
+                    expect(parsedToken.token.agcoUUID).to.equal("h234ljb234jkn23");
+                    expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
 
             });
         });
 
-        it('invalidates a user if openAM returns a 400 code', function() {
+        it('validates with tokenInfo and cached results', function() {
+            var user = 'missing',
+                pass = 'missing';
+
+            return getValidTokenInfo()
+                .spread(checkResponse);
+
+            function getValidTokenInfo() {
+                return $http.get(url + '/foo', {
+                    error: false,
+                    auth: {
+                        user: user,
+                        pass: pass
+                    },
+                    json: {
+                        deviceId: true
+                    }
+                });
+            }
+
+            function checkResponse(res) {
+                expect(res.statusCode).to.equal(200);
+
+                var header = user + ':' + pass,
+                    hashedHeader = MD5(header);
+
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.username).to.exist;
+                expect(requestUser.token.email).to.exist;
+
+                return db.select(1).then(getHeader).then(checkToken);
+
+                function getHeader() {
+                    return db.get(hashedHeader);
+                }
+
+                function checkToken(token) {
+                    expect(JSON.parse(token).sub).to.equal("h234ljb234jkn23");
+                }
+
+            }
+        });
+
+        it('invalidates a user if openAM token POST returns a 401 code', function() {
             var user = 'invalid',
                 pass = 'invalid';
 
@@ -205,6 +254,47 @@ describe('Basic Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(401);
             });
+        });
+    });
+
+    describe('Error handling check', function() {
+        before(function() {
+            openAMMock
+                .post(openAMTokenPath)
+                .reply(200, {
+                    "expires_in": 599,
+                    "token_type": "Bearer",
+                    "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
+                    "access_token": mockToken
+                })
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(404, {
+                    "error": "Not found",
+                    "error_description": "Could not read token in CTS"
+                });
+        });
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it('invalidates a user if openAM token POST returns a 404 code', function() {
+            var user = 'invalid',
+                pass = 'invalid';
+
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                },
+                json: {
+                    deviceId: true
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(401);
+                });
         });
     });
 });
