@@ -172,10 +172,10 @@ describe('Basic Authorization', function() {
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
 
-                expect(requestUser.agcoUUID).to.equal("h234ljb234jkn23");
                 expect(requestUser.sub).to.equal("h234ljb234jkn23");
-                expect(requestUser.username).to.exist;
-                expect(requestUser.email).to.exist;
+                expect(requestUser.tokenInfo.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.tokenInfo.username).to.exist;
+                expect(requestUser.tokenInfo.email).to.exist;
 
                 return db.select(1).then(getHeader).then(checkToken);
 
@@ -185,11 +185,11 @@ describe('Basic Authorization', function() {
 
                 function checkToken(token) {
                     var parsedToken = JSON.parse(token);
-                    expect(parsedToken.agcoUUID).to.equal("h234ljb234jkn23");
+                    expect(parsedToken.tokenInfo.agcoUUID).to.equal("h234ljb234jkn23");
                     expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
 
-            }
+            });
         });
 
         it('validates with tokenInfo and cached results', function() {
@@ -197,7 +197,6 @@ describe('Basic Authorization', function() {
                 pass = 'missing';
 
             return getValidTokenInfo()
-                .then(getValidTokenInfo)
                 .spread(checkResponse);
 
             function getValidTokenInfo() {
@@ -219,10 +218,10 @@ describe('Basic Authorization', function() {
                 var header = user + ':' + pass,
                     hashedHeader = MD5(header);
 
-                expect(requestUser.agcoUUID).to.equal("h234ljb234jkn23");
                 expect(requestUser.sub).to.equal("h234ljb234jkn23");
-                expect(requestUser.username).to.exist;
-                expect(requestUser.email).to.exist;
+                expect(requestUser.tokenInfo.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.tokenInfo.username).to.exist;
+                expect(requestUser.tokenInfo.email).to.exist;
 
                 return db.select(1).then(getHeader).then(checkToken);
 
@@ -237,7 +236,7 @@ describe('Basic Authorization', function() {
             }
         });
 
-        it('invalidates a user if openAM returns a 400 code', function() {
+        it('invalidates a user if openAM token POST returns a 401 code', function() {
             var user = 'invalid',
                 pass = 'invalid';
 
@@ -254,6 +253,47 @@ describe('Basic Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(401);
             });
+        });
+    });
+
+    describe('Error handling check', function() {
+        before(function() {
+            openAMMock
+                .post(openAMTokenPath)
+                .reply(200, {
+                    "expires_in": 599,
+                    "token_type": "Bearer",
+                    "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
+                    "access_token": mockToken
+                })
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(404, {
+                    "error": "Not found",
+                    "error_description": "Could not read token in CTS"
+                });
+        });
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it('invalidates a user if openAM token POST returns a 404 code', function() {
+            var user = 'invalid',
+                pass = 'invalid';
+
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                },
+                json: {
+                    deviceId: true
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(401);
+                });
         });
     });
 });
