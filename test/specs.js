@@ -185,6 +185,7 @@ describe('Basic Authorization', function() {
 
                 function checkToken(token) {
                     var parsedToken = JSON.parse(token);
+
                     expect(parsedToken.token.agcoUUID).to.equal("h234ljb234jkn23");
                     expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
