@@ -6,6 +6,7 @@ var expect = require('chai').expect,
     db = redis.createClient({database: 1}),
     express = require('express'),
     passport = require('passport'),
+    Promise = require('bluebird'),
     app = express(),
     redisOpenAM = require('../index.js'),
     port = '5050',
@@ -60,7 +61,7 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
-    return db.flushdb();
+    return db.flushall();
 });
 
 describe('Basic Authorization', function() {
@@ -117,6 +118,67 @@ describe('Basic Authorization', function() {
              .spread(function(res, body) {
                 expect(res.statusCode).to.equal(500);
              });
+        });
+
+    });
+
+    describe('Redis expires tokens', function() {
+        var mockToken = "basic",
+            user = 'missing',
+            pass = 'missing';
+
+        before(function() {
+            openAMMock
+                .post(openAMTokenPath)
+                .reply(200, {
+                    "expires_in": 3,
+                    "token_type": "Bearer",
+                    "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
+                    "access_token": mockToken
+                })
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(200, {
+                    "agcoUUID": "h234ljb234jkn23",
+                    "scope": [
+                        "agcoUUID",
+                        "username",
+                        "email"
+                    ],
+                    "username": "demo",
+                    "email": "foo@bar.com"
+                });
+
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                },
+                json: {
+                    deviceId: true
+                }
+            })
+        });
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it.only('removes the token', function() {
+            var hashedToken = MD5(mockToken);
+
+            this.timeout(4000);
+            return Promise.delay(3000)
+                .then(checkExpiry);
+
+            function checkExpiry() {
+                db.multi();
+                db.select(2);
+                db.get(hashedToken);
+                return db.exec().spread(function(selection, body) {
+                    return expect(body).to.equal(null);
+                });
+            }
         });
 
     });
@@ -326,7 +388,6 @@ describe('OAUTH2', function() {
             db.multi();
             db.select(2);
             db.set(hashedHeader, JSON.stringify(userInfo));
-
             return db.exec();
         });
 
@@ -343,6 +404,57 @@ describe('OAUTH2', function() {
                 });
         });
 
+    });
+
+    describe('Redis expires tokens', function() {
+
+        var mockTokenInfo = {
+                "profile": "",
+                "mail": "agc2.dealer.1@agcocorp.com",
+                "scope": [
+                    "mail",
+                    "cn",
+                    "profile"
+                ],
+                "grant_type": "password",
+                "cn": "agc2 dealer 1",
+                "realm": "/dealers",
+                "token_type": "Bearer",
+                "expires_in": 3,
+                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe",
+                "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
+            },
+            testToken = "testToken";
+
+        before(function() {
+            openAMMock
+                .get(openAMInfoPath+'?access_token='+testToken)
+                .reply(200, mockTokenInfo);
+
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + testToken
+                }
+            });
+        });
+
+        it('removes the token', function() {
+            var hashedToken = MD5(testToken);
+
+            this.timeout(4000);
+            return Promise.delay(3000)
+                .then(checkExpiry);
+
+            function checkExpiry() {
+                db.multi();
+                db.select(2);
+                db.get(hashedToken);
+                return db.exec().spread(function(selection, body) {
+                    return expect(body).to.equal(null);
+                });
+            }
+        });
     });
 
     describe('Tokens not in redis are checked against the provided tokeninfo '+
