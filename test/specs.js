@@ -164,7 +164,7 @@ describe('Basic Authorization', function() {
             return db.flushdb();
         });
 
-        it.only('removes the token', function() {
+        it('removes the token', function() {
             var hashedToken = MD5(mockToken);
 
             this.timeout(4000);
