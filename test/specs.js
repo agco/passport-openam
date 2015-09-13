@@ -3,12 +3,14 @@ var expect = require('chai').expect,
     MD5 = require('MD5'),
     nock = require('nock'),
     redis = require('then-redis'),
-    db = redis.createClient({database: 1}),
+    db = redis.createClient(),
     express = require('express'),
     passport = require('passport'),
     Promise = require('bluebird'),
     app = express(),
     redisOpenAM = require('../index.js'),
+    basicKey = redisOpenAM.basicKey,
+    oauth2Key = redisOpenAM.oauth2Key,
     port = '5050',
     url = 'http://0.0.0.0:'+port,
     openAMBaseURL = 'https://aaat.agcocorp.com',
@@ -29,13 +31,13 @@ before(function() {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
             client_id: 'client_id',
             client_secret: 'client_secret',
-            redis: {database: 1},
+            redis: {},
             scope: ["sub", "username", "email"]
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
             openAMUserURL: openAMBaseURL + openAMUserPath,
-            redis: {database: 2}
+            redis: {}
         };
 
     passport.use(redisOpenAM.basic(basicOptions));
@@ -88,8 +90,7 @@ describe('Basic Authorization', function() {
             var hashedHeader = MD5(header);
 
             db.multi();
-            db.select(1);
-            db.set(hashedHeader, JSON.stringify(token));
+            db.set(basicKey(hashedHeader), JSON.stringify(token));
 
             return db.exec();
         });
@@ -122,8 +123,8 @@ describe('Basic Authorization', function() {
 
     });
 
-    describe('Redis expires tokens', function() {
-        var mockToken = "basic",
+    describe('Redis expires tokens with basic strategy', function() {
+        var
             user = 'missing',
             pass = 'missing';
 
@@ -131,7 +132,7 @@ describe('Basic Authorization', function() {
             openAMMock
                 .post(openAMTokenPath)
                 .reply(200, {
-                    "expires_in": 3,
+                    "expires_in": 2,
                     "token_type": "Bearer",
                     "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
                     "access_token": mockToken
@@ -160,25 +161,15 @@ describe('Basic Authorization', function() {
             })
         });
 
+        var hashedToken = MD5(user + ':' + pass);
+
         after(function() {
             return db.flushdb();
         });
 
         it('removes the token', function() {
-            var hashedToken = MD5(mockToken);
-
-            this.timeout(4000);
-            return Promise.delay(3000)
-                .then(checkExpiry);
-
-            function checkExpiry() {
-                db.multi();
-                db.select(2);
-                db.get(hashedToken);
-                return db.exec().spread(function(selection, body) {
-                    return expect(body).to.equal(null);
-                });
-            }
+            this.timeout(5000);
+            return checkWaitAndVerifyExpired(basicKey(hashedToken), 3000);
         });
 
     });
@@ -239,10 +230,10 @@ describe('Basic Authorization', function() {
                 expect(requestUser.token.username).to.exist;
                 expect(requestUser.token.email).to.exist;
 
-                return db.select(1).then(getHeader).then(checkToken);
+                return getHeader().then(checkToken);
 
                 function getHeader() {
-                    return db.get(hashedHeader);
+                    return db.get(basicKey(hashedHeader));
                 }
 
                 function checkToken(token) {
@@ -286,10 +277,10 @@ describe('Basic Authorization', function() {
                 expect(requestUser.token.username).to.exist;
                 expect(requestUser.token.email).to.exist;
 
-                return db.select(1).then(getHeader).then(checkToken);
+                return getHeader().then(checkToken);
 
                 function getHeader() {
-                    return db.get(hashedHeader);
+                    return db.get(basicKey(hashedHeader));
                 }
 
                 function checkToken(token) {
@@ -386,8 +377,7 @@ describe('OAUTH2', function() {
                 };
 
             db.multi();
-            db.select(2);
-            db.set(hashedHeader, JSON.stringify(userInfo));
+            db.set(oauth2Key(hashedHeader), JSON.stringify(userInfo));
             return db.exec();
         });
 
@@ -406,7 +396,7 @@ describe('OAUTH2', function() {
 
     });
 
-    describe('Redis expires tokens', function() {
+    describe('Redis expires tokens with oauth2 strategy ', function() {
 
         var mockTokenInfo = {
                 "profile": "",
@@ -414,46 +404,35 @@ describe('OAUTH2', function() {
                 "scope": [
                     "mail",
                     "cn",
-                    "profile"
+                    "agcoUUID"
                 ],
                 "grant_type": "password",
                 "cn": "agc2 dealer 1",
                 "realm": "/dealers",
                 "token_type": "Bearer",
                 "expires_in": 3,
-                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe",
+                "access_token": mockToken,
                 "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
-            },
-            testToken = "testToken";
+            };
 
         before(function() {
             openAMMock
-                .get(openAMInfoPath+'?access_token='+testToken)
+                .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, mockTokenInfo);
 
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
-                    Authorization: 'Bearer ' + testToken
+                    Authorization: 'Bearer ' + mockToken
                 }
             });
         });
 
         it('removes the token', function() {
-            var hashedToken = MD5(testToken);
+            var hashedToken = MD5(mockToken);
 
-            this.timeout(4000);
-            return Promise.delay(3000)
-                .then(checkExpiry);
-
-            function checkExpiry() {
-                db.multi();
-                db.select(2);
-                db.get(hashedToken);
-                return db.exec().spread(function(selection, body) {
-                    return expect(body).to.equal(null);
-                });
-            }
+            this.timeout(5000);
+            return checkWaitAndVerifyExpired(oauth2Key(hashedToken), 4000);
         });
     });
 
@@ -472,7 +451,7 @@ describe('OAUTH2', function() {
                 "realm": "/dealers",
                 "token_type": "Bearer",
                 "expires_in": 7136,
-                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe",
+                "access_token": mockToken,
                 "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
             },
             error = {
@@ -497,6 +476,8 @@ describe('OAUTH2', function() {
 
         it('Has the user info on the req body if it is found and stores it in '+
             'redis', function() {
+
+
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
@@ -511,9 +492,8 @@ describe('OAUTH2', function() {
                 expect(requestUser.sub).to.equal(mockTokenInfo.agcoUUID);
 
                 db.multi();
-                db.select(2);
-                db.get(hashedToken);
-                return db.exec().spread(function(selection, body) {
+                db.get(oauth2Key(hashedToken));
+                return db.exec().spread(function(body) {
                     return expect(JSON.parse(body).sub).to.equal(mockTokenInfo.agcoUUID);
                 });
             });
@@ -531,9 +511,8 @@ describe('OAUTH2', function() {
                     var hashedToken = MD5(badToken);
 
                     db.multi();
-                    db.select(2);
-                    db.get(hashedToken);
-                    return db.exec().spread(function(selection, body) {
+                    db.get(oauth2Key(hashedToken));
+                    return db.exec().spread(function(body) {
                         return expect(body).to.equal(null);
                     });
                 });
@@ -552,3 +531,41 @@ describe('OAUTH2', function() {
         });
     });
 });
+
+function checkWaitAndVerifyExpired(hash, wait) {
+
+    return checkInitial(hash)
+        .then(function () {
+            return Promise.delay(wait);
+        })
+        .then(function() {
+            return checkExpired(hash);
+        });
+}
+
+function checkInitial(hash) {
+    return checkVal(hash).spread(function (body) {
+        return expect(body).to.not.be.null;
+    });
+}
+
+function checkExpired(hash) {
+    return checkVal(hash).spread(function (body) {
+        return expect(!body).to.be.true;
+    });
+}
+
+function checkVal(hash) {
+    db.multi();
+    db.get(hash);
+    return db.exec()
+}
+
+function setVal(key, obj) {
+    db.multi();
+    db.set(key, JSON.stringify(obj));
+
+    return db.exec();
+}
+
+
