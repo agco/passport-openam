@@ -6,8 +6,11 @@ var expect = require('chai').expect,
     db = redis.createClient(),
     express = require('express'),
     passport = require('passport'),
+    Promise = require('bluebird'),
     app = express(),
     redisOpenAM = require('../index.js'),
+    basicKey = redisOpenAM.basicKey,
+    oauth2Key = redisOpenAM.oauth2Key,
     port = '5050',
     url = 'http://0.0.0.0:'+port,
     openAMBaseURL = 'https://aaat.agcocorp.com',
@@ -28,13 +31,13 @@ before(function() {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
             client_id: 'client_id',
             client_secret: 'client_secret',
-            redis: {database: 1},
-            scope: ["UUID", "username", "email"]
+            redis: {},
+            scope: ["sub", "username", "email"]
         },
         oauth2Options = {
             openAMInfoURL: openAMBaseURL + openAMInfoPath,
             openAMUserURL: openAMBaseURL + openAMUserPath,
-            redis: {database: 2}
+            redis: {}
         };
 
     passport.use(redisOpenAM.basic(basicOptions));
@@ -42,10 +45,16 @@ before(function() {
     app.use(passport.initialize());
     app.get('/foo', passport.authenticate('basic', {session: false}), sendResponse);
     app.get('/bar', passport.authenticate('bearer', {session: false}), sendResponse);
+    app.get('/foo_err', passport.authenticate('basic', {session: false}), function(req, res) {
+        res.status(500).send('dummy error');
+    });
+    app.get('/bar_err', passport.authenticate('bearer', {session: false}), function(req, res) {
+        res.status(500).send('dummy error');
+    });
 
     function sendResponse(req, res, next) {
         requestUser = req.user;
-        res.sendStatus(200);
+        res.sendStatus(200, JSON.stringify(req.user));
     }
 
     var server = app.listen(port, function() {
@@ -54,6 +63,7 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
+    return db.flushall();
 });
 
 describe('Basic Authorization', function() {
@@ -67,10 +77,11 @@ describe('Basic Authorization', function() {
 
     });
 
+
     describe('Redis caches authentication', function() {
         var user = 'foo',
             pass = 'bar',
-            token = 'qux';
+            token = {sub: '234234'};
 
         before(function() {
             //create
@@ -79,15 +90,12 @@ describe('Basic Authorization', function() {
             var hashedHeader = MD5(header);
 
             db.multi();
-            db.select(1);
-            db.set(hashedHeader, token);
+            db.set(basicKey(hashedHeader), JSON.stringify(token));
 
             return db.exec();
         });
 
         it('checks for an existing base64 token to auth', function() {
-            // FIXME: This test generates an error trace. However the test still
-            // passes
             return $http.get(url + '/foo', {
                 error: false,
                 auth: {
@@ -98,6 +106,70 @@ describe('Basic Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(200);
             });
+        });
+
+        it('returns downstream errors as is', function() {
+            return $http.get(url + '/foo_err', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                }
+            })
+             .spread(function(res, body) {
+                expect(res.statusCode).to.equal(500);
+             });
+        });
+
+    });
+
+    describe('Redis expires tokens with basic strategy', function() {
+        var
+            user = 'missing',
+            pass = 'missing';
+
+        before(function() {
+            openAMMock
+                .post(openAMTokenPath)
+                .reply(200, {
+                    "expires_in": 2,
+                    "token_type": "Bearer",
+                    "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
+                    "access_token": mockToken
+                })
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(200, {
+                    "agcoUUID": "h234ljb234jkn23",
+                    "scope": [
+                        "agcoUUID",
+                        "username",
+                        "email"
+                    ],
+                    "username": "demo",
+                    "email": "foo@bar.com"
+                });
+
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                },
+                json: {
+                    deviceId: true
+                }
+            })
+        });
+
+        var hashedToken = MD5(user + ':' + pass);
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it('removes the token', function() {
+            this.timeout(5000);
+            return checkWaitAndVerifyExpired(basicKey(hashedToken), 3000);
         });
 
     });
@@ -115,9 +187,9 @@ describe('Basic Authorization', function() {
                 })
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
-                    "UUID": "h234ljb234jkn23",
+                    "agcoUUID": "h234ljb234jkn23",
                     "scope": [
-                        "UUID",
+                        "agcoUUID",
                         "username",
                         "email"
                     ],
@@ -147,30 +219,78 @@ describe('Basic Authorization', function() {
                     deviceId: true
                 }
             })
-            .spread(function(res, body) {
+            .spread(function checkResponse(res, body) {
                 expect(res.statusCode).to.equal(200);
 
                 var header = user + ':' + pass,
                 hashedHeader = MD5(header);
 
-                expect(requestUser.UUID).to.exist;
-                expect(requestUser.username).to.exist;
-                expect(requestUser.email).to.exist;
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.username).to.exist;
+                expect(requestUser.token.email).to.exist;
 
-                return db.select(1).then(getHeader).then(checkToken);
+                return getHeader().then(checkToken);
 
                 function getHeader() {
-                    return db.get(hashedHeader);
+                    return db.get(basicKey(hashedHeader));
                 }
 
                 function checkToken(token) {
-                    expect(token).to.equal(mockToken);
+                    var parsedToken = JSON.parse(token);
+
+                    expect(parsedToken.token.agcoUUID).to.equal("h234ljb234jkn23");
+                    expect(parsedToken.sub).to.equal("h234ljb234jkn23");
                 }
 
             });
         });
 
-        it('invalidates a user if openAM returns a 400 code', function() {
+        it('validates with tokenInfo and cached results', function() {
+            var user = 'missing',
+                pass = 'missing';
+
+            return getValidTokenInfo()
+                .spread(checkResponse);
+
+            function getValidTokenInfo() {
+                return $http.get(url + '/foo', {
+                    error: false,
+                    auth: {
+                        user: user,
+                        pass: pass
+                    },
+                    json: {
+                        deviceId: true
+                    }
+                });
+            }
+
+            function checkResponse(res) {
+                expect(res.statusCode).to.equal(200);
+
+                var header = user + ':' + pass,
+                    hashedHeader = MD5(header);
+
+                expect(requestUser.sub).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.agcoUUID).to.equal("h234ljb234jkn23");
+                expect(requestUser.token.username).to.exist;
+                expect(requestUser.token.email).to.exist;
+
+                return getHeader().then(checkToken);
+
+                function getHeader() {
+                    return db.get(basicKey(hashedHeader));
+                }
+
+                function checkToken(token) {
+                    expect(JSON.parse(token).sub).to.equal("h234ljb234jkn23");
+                }
+
+            }
+        });
+
+        it('invalidates a user if openAM token POST returns a 401 code', function() {
             var user = 'invalid',
                 pass = 'invalid';
 
@@ -187,6 +307,47 @@ describe('Basic Authorization', function() {
             .spread(function(res, body) {
                 expect(res.statusCode).to.equal(401);
             });
+        });
+    });
+
+    describe('Error handling check', function() {
+        before(function() {
+            openAMMock
+                .post(openAMTokenPath)
+                .reply(200, {
+                    "expires_in": 599,
+                    "token_type": "Bearer",
+                    "refresh_token": "f9063e26-3a29-41ec-86de-1d0d68aa85e9",
+                    "access_token": mockToken
+                })
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(404, {
+                    "error": "Not found",
+                    "error_description": "Could not read token in CTS"
+                });
+        });
+
+        after(function() {
+            return db.flushdb();
+        });
+
+        it('invalidates a user if openAM token POST returns a 404 code', function() {
+            var user = 'invalid',
+                pass = 'invalid';
+
+            return $http.get(url + '/foo', {
+                error: false,
+                auth: {
+                    user: user,
+                    pass: pass
+                },
+                json: {
+                    deviceId: true
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(401);
+                });
         });
     });
 });
@@ -216,9 +377,7 @@ describe('OAUTH2', function() {
                 };
 
             db.multi();
-            db.select(2);
-            db.set(hashedHeader, JSON.stringify(userInfo));
-
+            db.set(oauth2Key(hashedHeader), JSON.stringify(userInfo));
             return db.exec();
         });
 
@@ -237,6 +396,46 @@ describe('OAUTH2', function() {
 
     });
 
+    describe('Redis expires tokens with oauth2 strategy ', function() {
+
+        var mockTokenInfo = {
+                "profile": "",
+                "mail": "agc2.dealer.1@agcocorp.com",
+                "scope": [
+                    "mail",
+                    "cn",
+                    "agcoUUID"
+                ],
+                "grant_type": "password",
+                "cn": "agc2 dealer 1",
+                "realm": "/dealers",
+                "token_type": "Bearer",
+                "expires_in": 3,
+                "access_token": mockToken,
+                "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
+            };
+
+        before(function() {
+            openAMMock
+                .get(openAMInfoPath+'?access_token='+mockToken)
+                .reply(200, mockTokenInfo);
+
+            return $http.get(url + '/bar', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + mockToken
+                }
+            });
+        });
+
+        it('removes the token', function() {
+            var hashedToken = MD5(mockToken);
+
+            this.timeout(5000);
+            return checkWaitAndVerifyExpired(oauth2Key(hashedToken), 4000);
+        });
+    });
+
     describe('Tokens not in redis are checked against the provided tokeninfo '+
              'endpoint', function() {
         var mockTokenInfo = {
@@ -252,7 +451,7 @@ describe('OAUTH2', function() {
                 "realm": "/dealers",
                 "token_type": "Bearer",
                 "expires_in": 7136,
-                "access_token": "4393a7b3-af35-4dde-b966-80e8420084fe",
+                "access_token": mockToken,
                 "agcoUUID": "3f946638-ea3f-11e4-b02c-1681e6b88ec1"
             },
             error = {
@@ -266,7 +465,9 @@ describe('OAUTH2', function() {
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, mockTokenInfo)
                 .get(openAMInfoPath+'?access_token='+badToken)
-                .reply(404, error);
+                .reply(404, error)
+                .get(openAMInfoPath+'?access_token='+badToken)
+                .reply(200, mockTokenInfo);
         });
 
         beforeEach(function() {
@@ -275,6 +476,8 @@ describe('OAUTH2', function() {
 
         it('Has the user info on the req body if it is found and stores it in '+
             'redis', function() {
+
+
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
@@ -289,15 +492,14 @@ describe('OAUTH2', function() {
                 expect(requestUser.sub).to.equal(mockTokenInfo.agcoUUID);
 
                 db.multi();
-                db.select(2);
-                db.get(hashedToken);
-                return db.exec().spread(function(selection, body) {
+                db.get(oauth2Key(hashedToken));
+                return db.exec().spread(function(body) {
                     return expect(JSON.parse(body).sub).to.equal(mockTokenInfo.agcoUUID);
                 });
             });
         });
 
-        it('invalidates a user if oauth returns 400', function() {
+        it('invalidates a user if oauth returns 401', function() {
             return $http.get(url + '/bar', {
                 error: false,
                 headers: {
@@ -309,12 +511,61 @@ describe('OAUTH2', function() {
                     var hashedToken = MD5(badToken);
 
                     db.multi();
-                    db.select(2);
-                    db.get(hashedToken);
-                    return db.exec().spread(function(selection, body) {
+                    db.get(oauth2Key(hashedToken));
+                    return db.exec().spread(function(body) {
                         return expect(body).to.equal(null);
                     });
                 });
         });
+
+        it('returns downstream errors as is', function() {
+            return $http.get(url + '/bar_err', {
+                error: false,
+                headers: {
+                    Authorization: 'Bearer ' + 'foo'
+                }
+            })
+                .spread(function(res, body) {
+                    expect(res.statusCode).to.equal(500);
+                });
+        });
     });
 });
+
+function checkWaitAndVerifyExpired(hash, wait) {
+
+    return checkInitial(hash)
+        .then(function () {
+            return Promise.delay(wait);
+        })
+        .then(function() {
+            return checkExpired(hash);
+        });
+}
+
+function checkInitial(hash) {
+    return checkVal(hash).spread(function (body) {
+        return expect(body).to.not.be.null;
+    });
+}
+
+function checkExpired(hash) {
+    return checkVal(hash).spread(function (body) {
+        return expect(!body).to.be.true;
+    });
+}
+
+function checkVal(hash) {
+    db.multi();
+    db.get(hash);
+    return db.exec()
+}
+
+function setVal(key, obj) {
+    db.multi();
+    db.set(key, JSON.stringify(obj));
+
+    return db.exec();
+}
+
+
