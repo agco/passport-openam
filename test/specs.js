@@ -139,6 +139,7 @@ describe('Basic Authorization', function() {
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
                     "agcoUUID": "h234ljb234jkn23",
+                    "expires_in": 2,
                     "scope": [
                         "agcoUUID",
                         "username",
@@ -187,6 +188,8 @@ describe('Basic Authorization', function() {
                 .get(openAMInfoPath+'?access_token='+mockToken)
                 .reply(200, {
                     "agcoUUID": "h234ljb234jkn23",
+                    "expires_in": 599,
+                    "token_type": "Bearer",
                     "scope": [
                         "agcoUUID",
                         "username",

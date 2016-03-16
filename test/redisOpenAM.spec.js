@@ -82,7 +82,26 @@ describe('Module redisOpenAM', function () {
 
             it('When OpenAM returns any invalid response, ' +
                 'should not cache errors in redis', function () {
+                openAMMock
+                    .post(openAMTokenPath)
+                    .reply(200, { access_token: mockToken })
+                    .get(openAMInfoPath + '?access_token=' + mockToken)
+                    .reply(200, '<div>some html probably with an error message but a statusCode 200 got returned</div>');
 
+                return verify('foo', 'bar', function callback(err, user, info) {
+                    return {
+                        err: err,
+                        user: user,
+                        info: info
+                    };
+                })
+                    .then(function validateUserIsFalse(result) {
+                        result.user.should.equal(false);
+                        return redisDb.keys('*');
+                    })
+                    .then(function validateNothingCachedInRedis(redisKeyList) {
+                        redisKeyList.length.should.equal(0);
+                    });
             });
         });
     });
