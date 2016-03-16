@@ -3,10 +3,11 @@
  */
 
 // dependencies
-var should = require('chai').should();
-var Strategy = require('passport-http-bearer');
-var nock = require('nock')
-var Redis = require('then-redis')
+var should = require('chai').should(),
+    Oauth2Strategy = require('passport-http-bearer').Strategy,
+    BasicStrategy = require('passport-http').BasicStrategy,
+    Nock= require('nock'),
+    Redis = require('then-redis');
 
 
 // module under test
@@ -15,9 +16,11 @@ var RedisOpenAM = require('../lib/redisOpenAM');
 
 // constants
 var openAMBaseURL = 'https://example.com';
+var openAMTokenPath = '/access_token'
 var openAMInfoPath = '/tokeninfo';
 var openAMUserPath = '/userinfo';
-var openAMMock = nock(openAMBaseURL);
+var openAMMock = Nock(openAMBaseURL);
+var mockToken = 'db6e6138-3f53-4065-9610-25022a175516';
 
 // tests
 describe('Module redisOpenAM', function () {
@@ -27,7 +30,7 @@ describe('Module redisOpenAM', function () {
         redisDb = Redis.createClient();
     });
 
-    beforeEach(function cleanup() {
+    beforeEach(function setupMockOptions() {
         redisDb.flushall();
     });
 
@@ -47,22 +50,57 @@ describe('Module redisOpenAM', function () {
         RedisOpenAM.should.have.property('oauth2').and.be.a.Function;
     });
 
-    describe('The createOauth2Strategy function', function () {
-        var oauth2Strategy,
-            mockOptions;
+    describe('the createBasicStrategy function', function () {
+        var basicStrategy;
 
-        before(function createOptionsMock() {
-            mockOptions = {
+        before(function referenceBasicStrategy() {
+            basicStrategy = RedisOpenAM.basic({
+                openAMBaseURL: openAMBaseURL + openAMTokenPath,
+                openAMInfoURL: openAMBaseURL + openAMInfoPath,
+                scope: [ 'sub', 'username', 'email'],
+                client_id: 'client_id',
+                client_secret: 'client_secret',
+                redis: {},
+            });
+        });
+
+        it('should return an instance of BasicStrategy', function () {
+            basicStrategy.should.be.an.Object;
+            basicStrategy.should.be.an.instanceof(BasicStrategy);
+        });
+
+        describe('The verify function used by createBasicStrategy', function () {
+            var verify;
+
+            before(function getRefToVerify() {
+                verify = basicStrategy._verify;
+            });
+
+            it('should be a function', function () {
+               verify.should.be.a.Function;
+            });
+
+            it('When OpenAM returns any invalid response, ' +
+                'should not cache errors in redis', function () {
+
+            });
+        });
+    });
+
+    describe('The createOauth2Strategy function', function () {
+        var oauth2Strategy;
+
+        before(function getRefToOauth2Strategy() {
+            oauth2Strategy = RedisOpenAM.oauth2({
                 redis: {},
                 openAMInfoURL: openAMBaseURL + openAMInfoPath,
                 openAMUserURL: openAMBaseURL + openAMUserPath
-            };
-            oauth2Strategy = RedisOpenAM.oauth2(mockOptions);
+            });
         });
 
-        it('should return an instance of Strategy', function () {
+        it('should return an instance of Oauth2Strategy', function () {
             oauth2Strategy.should.be.an.Object;
-            oauth2Strategy.should.be.an.instanceof(Strategy);
+            oauth2Strategy.should.be.an.instanceof(Oauth2Strategy);
         });
 
         describe('The verify function used by createOauth2Strategy', function () {
@@ -70,11 +108,11 @@ describe('Module redisOpenAM', function () {
 
             before(function getRefToVerify() {
                 verify = oauth2Strategy._verify;
-            })
+            });
 
             it('should be a function', function () {
                 verify.should.be.a.Function;
-            })
+            });
 
             /**
              * Under high loads, our OpenAM provider is returning a 200 message with some html detailing a 503 error. Our code is not treating this as an
@@ -83,8 +121,6 @@ describe('Module redisOpenAM', function () {
              */
             it('When OpenAM returns any invalid response, ' +
                 'should not cache errors in redis', function () {
-                var mockToken = 'db6e6138-3f53-4065-9610-25022a175516';
-
                 openAMMock
                     .get(openAMInfoPath + '?access_token=' + mockToken)
                     .reply(200, '<div>some html probably with an error message but a statusCode 200 got returned</div>');
