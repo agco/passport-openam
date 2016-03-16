@@ -26,9 +26,8 @@
   },
   "homepage": "https://github.com/agco/passport-openam",
   "dependencies": {
-    "bluebird": "^2.9.24",
+    "bluebird": "^3.3.4",
     "http-as-promised": "^1.0.0",
-    "lodash": "^3.7.0",
     "md5": "^2.1.0",
     "passport": "^0.2.1",
     "passport-http": "^0.2.2",
