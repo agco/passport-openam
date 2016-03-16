@@ -189,7 +189,6 @@ describe('Basic Authorization', function() {
                 .reply(200, {
                     "agcoUUID": "h234ljb234jkn23",
                     "expires_in": 599,
-                    "token_type": "Bearer",
                     "scope": [
                         "agcoUUID",
                         "username",
