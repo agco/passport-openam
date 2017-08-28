@@ -7,8 +7,11 @@ var should = require('chai').should(),
     Oauth2Strategy = require('passport-http-bearer').Strategy,
     BasicStrategy = require('passport-http').BasicStrategy,
     Nock= require('nock'),
-    Redis = require('then-redis');
+    promise = require('bluebird'),
+    Redis = require('redis');
 
+promise.promisifyAll(Redis.RedisClient.prototype);
+promise.promisifyAll(Redis.Multi.prototype);
 
 // module under test
 var RedisOpenAM = require('../lib/redisOpenAM');
@@ -24,14 +27,14 @@ var mockToken = 'db6e6138-3f53-4065-9610-25022a175516';
 
 // tests
 describe('Module redisOpenAM', function () {
-    var redisDb;
+    var redis;
 
     before(function configRedisDb() {
-        redisDb = Redis.createClient();
+        redis = Redis.createClient();
     });
 
     beforeEach(function setupMockOptions() {
-        redisDb.flushall();
+        redis.flushallAsync();
     });
 
     it('should have property basicKey and be a function', function () {
@@ -97,7 +100,7 @@ describe('Module redisOpenAM', function () {
                 })
                     .then(function validateUserIsFalse(result) {
                         result.user.should.equal(false);
-                        return redisDb.keys('*');
+                        return redis.keysAsync('*');
                     })
                     .then(function validateNothingCachedInRedis(redisKeyList) {
                         redisKeyList.length.should.equal(0);
@@ -153,7 +156,7 @@ describe('Module redisOpenAM', function () {
                 })
                     .then(function validateUserIsFalse(result) {
                         result.user.should.equal(false);
-                        return redisDb.keys('*');
+                        return redis.keysAsync('*');
                     })
                     .then(function validateNothingCachedInRedis(redisKeyList) {
                         redisKeyList.length.should.equal(0);

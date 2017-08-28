@@ -2,8 +2,8 @@ var expect = require('chai').expect,
     $http = require('http-as-promised'),
     MD5 = require('MD5'),
     nock = require('nock'),
-    redis = require('then-redis'),
-    db = redis.createClient(),
+    promise = require('bluebird'),
+    Redis = require('redis'),
     express = require('express'),
     passport = require('passport'),
     Promise = require('bluebird'),
@@ -21,6 +21,11 @@ var expect = require('chai').expect,
     mockToken = "f6dcf133-f00b-4943-a8d4-ee939fc1bf29",
     openAMMock = nock(openAMBaseURL),
     requestUser;
+
+promise.promisifyAll(Redis.RedisClient.prototype);
+promise.promisifyAll(Redis.Multi.prototype);
+
+var redis = Redis.createClient();
 
 nock.enableNetConnect();
 
@@ -62,7 +67,7 @@ before(function() {
         console.log('Test server listening at http://%s:%s', host, port);
     });
 
-    return db.flushall();
+    return redis.flushallAsync();
 });
 
 describe('Basic Authorization', function() {
@@ -88,10 +93,9 @@ describe('Basic Authorization', function() {
             var header = user + ':' + pass;
             var hashedHeader = MD5(header);
 
-            db.multi();
-            db.set(basicKey(hashedHeader), JSON.stringify(token));
-
-            return db.exec();
+            return redis.multi()
+            .set(basicKey(hashedHeader), JSON.stringify(token))
+            .execAsync();
         });
 
         it('checks for an existing base64 token to auth', function() {
@@ -164,7 +168,7 @@ describe('Basic Authorization', function() {
         var hashedToken = MD5(user + ':' + pass);
 
         after(function() {
-            return db.flushdb();
+            return redis.flushdbAsync();
         });
 
         it('removes the token', function() {
@@ -202,7 +206,7 @@ describe('Basic Authorization', function() {
         });
 
         after(function() {
-            return db.flushdb();
+            return redis.flushdbAsync();
         });
 
         it('validates a user if their credentials exist in openAM and returns '+
@@ -234,7 +238,7 @@ describe('Basic Authorization', function() {
                 return getHeader().then(checkToken);
 
                 function getHeader() {
-                    return db.get(basicKey(hashedHeader));
+                    return redis.getAsync(basicKey(hashedHeader));
                 }
 
                 function checkToken(token) {
@@ -281,7 +285,7 @@ describe('Basic Authorization', function() {
                 return getHeader().then(checkToken);
 
                 function getHeader() {
-                    return db.get(basicKey(hashedHeader));
+                    return redis.getAsync(basicKey(hashedHeader));
                 }
 
                 function checkToken(token) {
@@ -329,7 +333,7 @@ describe('Basic Authorization', function() {
         });
 
         after(function() {
-            return db.flushdb();
+            return redis.flushdbAsync();
         });
 
         it('invalidates a user if openAM token POST returns a 404 code', function() {
@@ -377,9 +381,9 @@ describe('OAUTH2', function() {
                     name: expectedName
                 };
 
-            db.multi();
-            db.set(oauth2Key(hashedHeader), JSON.stringify(userInfo));
-            return db.exec();
+            return redis.multi()
+            .set(oauth2Key(hashedHeader), JSON.stringify(userInfo))
+            .execAsync();
         });
 
         it('checks for an existing oauth2 token to auth', function() {
@@ -472,7 +476,7 @@ describe('OAUTH2', function() {
         });
 
         beforeEach(function() {
-            return db.flushall();
+            return redis.flushallAsync();
         });
 
         it('Has the user info on the req body if it is found and stores it in '+
@@ -492,9 +496,9 @@ describe('OAUTH2', function() {
                 //expect(requestUser.token.mail).to.equal(mockTokenInfo.mail);
                 expect(requestUser.sub).to.equal(mockTokenInfo.agcoUUID);
 
-                db.multi();
-                db.get(oauth2Key(hashedToken));
-                return db.exec().spread(function(body) {
+                return redis.multi()
+                .get(oauth2Key(hashedToken))
+                .execAsync().spread(function(body) {
                     return expect(JSON.parse(body).sub).to.equal(mockTokenInfo.agcoUUID);
                 });
             });
@@ -511,11 +515,11 @@ describe('OAUTH2', function() {
                     expect(res.statusCode).to.equal(401);
                     var hashedToken = MD5(badToken);
 
-                    db.multi();
-                    db.get(oauth2Key(hashedToken));
-                    return db.exec().spread(function(body) {
-                        return expect(body).to.equal(null);
-                    });
+                    return redis.multi()
+                        .get(oauth2Key(hashedToken))
+                        .execAsync().spread(function(body) {
+                            return expect(body).to.equal(null);
+                        });
                 });
         });
 
@@ -557,16 +561,15 @@ function checkExpired(hash) {
 }
 
 function checkVal(hash) {
-    db.multi();
-    db.get(hash);
-    return db.exec()
+    return redis.multi()
+        .get(hash)
+        .execAsync();
 }
 
 function setVal(key, obj) {
-    db.multi();
-    db.set(key, JSON.stringify(obj));
-
-    return db.exec();
+    return redis.multi()
+        .set(key, JSON.stringify(obj))
+        .execAsync();
 }
 
 
