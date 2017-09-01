@@ -34,7 +34,7 @@ describe('Module redisOpenAM', function () {
     });
 
     beforeEach(function setupMockOptions() {
-        redis.flushallAsync();
+        return redis.flushallAsync();
     });
 
     it('should have property basicKey and be a function', function () {
